@@ -68,7 +68,7 @@ def to_monthly(row: dict, field: str = "salary_min"):
             elif val < 5_000:        # 時給相当
                 return val * 160 / 10_000
         return None
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, KeyError):
         return None
 
 
@@ -312,6 +312,128 @@ def build_table_rows(rows: list) -> str:
     return html
 
 
+# ── 月別タブコンテンツ ─────────────────────────────────────────────────────
+
+def build_monthly_tabs(rows: list) -> tuple:
+    """月別データのタブボタンとコンテンツHTMLを返す (buttons_html, panes_html)"""
+    from collections import defaultdict
+
+    # 月ごとにデータを振り分け
+    by_month: dict = defaultdict(list)
+    for r in rows:
+        d = r.get("date", "")
+        if d:
+            by_month[d[:7]].append(r)
+
+    months = sorted(by_month.keys(), reverse=True)  # 新しい月が先
+    if not months:
+        return "", "<p style='color:#999;font-size:13px'>データがありません</p>"
+
+    btn_html = ""
+    pane_html = ""
+
+    for idx, month in enumerate(months):
+        month_rows = by_month[month]
+        is_active = idx == 0
+        active_cls = " active" if is_active else ""
+        yr, mo = month.split("-")
+        label = f"{yr}年{int(mo)}月"
+        cnt = len(month_rows)
+
+        btn_html += (
+            f'<button class="tab-btn{active_cls}" '
+            f'onclick="switchMonthTab(\'{month}\')">'
+            f'{label} <span style="font-size:10px;opacity:.75">({cnt}件)</span>'
+            f'</button>\n'
+        )
+
+        # 月別サマリー
+        with_sal = sum(1 for r in month_rows if to_monthly(r))
+        companies_this = sorted({r.get("company","") for r in month_rows if r.get("company")})
+
+        # 月別比較表（その月のデータだけで計算）
+        bucket: dict = defaultdict(list)
+        for r in month_rows:
+            mn = to_monthly(r, "salary_min")
+            mx = to_monthly(r, "salary_max")
+            if mn and r.get("qualification"):
+                bucket[(r["company"], r["qualification"])].append((mn, mx or mn))
+
+        active_cos = [co for co in COMPANIES if any((co, q) in bucket for q in QUALIFICATIONS)]
+        if active_cos:
+            header = "<tr><th>資格</th>" + "".join(f"<th>{co}</th>" for co in active_cos) + "</tr>"
+            body = ""
+            for qual in QUALIFICATIONS:
+                row_html = f"<tr><td class='qual-cell'>{qual}</td>"
+                for co in active_cos:
+                    vals = bucket.get((co, qual), [])
+                    if vals:
+                        import statistics as _s
+                        avg_mn = _s.mean(v[0] for v in vals)
+                        avg_mx = _s.mean(v[1] for v in vals)
+                        n = len(vals)
+                        row_html += (f"<td class='salary-ok'>"
+                                     f"<span class='range'>{fmt_man(avg_mn)}〜{fmt_man(avg_mx)}万</span>"
+                                     f"<span class='cnt'>n={n}</span></td>")
+                    else:
+                        row_html += "<td class='no-data'>—</td>"
+                row_html += "</tr>"
+                body += row_html
+            cmp = f"<table class='cmp-tbl'><thead>{header}</thead><tbody>{body}</tbody></table>"
+        else:
+            cmp = "<p style='color:#999;font-size:13px'>給与データなし</p>"
+
+        # 月別求人テーブル行
+        rows_html = ""
+        for r in sorted(month_rows, key=lambda x: (x.get("company",""), x.get("qualification",""))):
+            mn = to_monthly(r, "salary_min")
+            mx = to_monthly(r, "salary_max")
+            salary_disp = r.get("salary_raw") or "—"
+            range_disp = (f"{fmt_man(mn)}〜{fmt_man(mx)}万" if mn else "")
+            source = "Indeed" if "indeed.com" in r.get("source_url","") else "採用ページ"
+            src_cls = "src-indeed" if source == "Indeed" else "src-career"
+            area = r.get("area","その他")
+            url = r.get("source_url","")
+            title = (r.get("job_title") or "")[:50]
+            qual = r.get("qualification") or "—"
+            rows_html += (
+                f"<tr>"
+                f"<td>{r.get('company','')}</td>"
+                f"<td>{qual}</td>"
+                f"<td class='title-cell'>{title}</td>"
+                f"<td><span class='badge badge-{area}'>{area}</span></td>"
+                f"<td class='salary-raw'>{salary_disp}</td>"
+                f"<td class='salary-range'>{range_disp}</td>"
+                f"<td><span class='badge {src_cls}'>{source}</span></td>"
+                f"<td><a href='{url}' target='_blank' rel='noopener'>🔗</a></td>"
+                f"</tr>\n"
+            )
+
+        pane_html += f"""
+<div id="month-{month}" class="tab-pane{active_cls}">
+  <div class="month-stats">
+    <span class="mstat"><b>{cnt}</b>件収集</span>
+    <span class="mstat"><b>{with_sal}</b>件給与あり</span>
+    <span class="mstat">対象企業: <b>{', '.join(companies_this) or '—'}</b></span>
+  </div>
+  <h3 style="font-size:13px;font-weight:700;margin:14px 0 8px;color:#444">給与比較表</h3>
+  <div class="tbl-wrap">{cmp}</div>
+  <h3 style="font-size:13px;font-weight:700;margin:18px 0 8px;color:#444">求人一覧</h3>
+  <div class="tbl-wrap">
+    <table class="list-tbl">
+      <thead><tr>
+        <th>企業</th><th>資格</th><th>求人タイトル</th><th>エリア</th>
+        <th>給与（原文）</th><th>月額換算</th><th>ソース</th><th>URL</th>
+      </tr></thead>
+      <tbody>{rows_html}</tbody>
+    </table>
+  </div>
+</div>
+"""
+
+    return btn_html, pane_html
+
+
 # ── HTML生成 ───────────────────────────────────────────────────────────────
 
 def generate_html(rows: list) -> str:
@@ -323,6 +445,7 @@ def generate_html(rows: list) -> str:
     chart_trend_qual = build_qual_trend_chart_data(rows)
     cmp_table        = build_comparison_table(rows)
     table_rows       = build_table_rows(rows)
+    monthly_btns, monthly_panes = build_monthly_tabs(rows)
 
     today           = date.today().strftime("%Y年%m月%d日")
     total           = len(rows)
@@ -413,6 +536,10 @@ table.list-tbl{{width:100%;border-collapse:collapse;font-size:12px}}
 .list-tbl th.sortable:hover{{background:#ffd5d0}}
 .sort-asc::after{{content:" ↑"}}
 .sort-desc::after{{content:" ↓"}}
+/* ── 月別サマリー ── */
+.month-stats{{display:flex;gap:16px;flex-wrap:wrap;padding:10px 14px;
+              background:#fff8f7;border-radius:8px;margin-bottom:12px;font-size:12px;color:#555}}
+.mstat b{{color:#FF6753}}
 /* ── フッター ── */
 footer{{text-align:center;font-size:11px;color:#bbb;padding:20px}}
 </style>
@@ -472,9 +599,18 @@ footer{{text-align:center;font-size:11px;color:#bbb;padding:20px}}
     <div class="tbl-wrap">{cmp_table}</div>
   </div>
 
+  <!-- ── 月別データ ── -->
+  <div class="card">
+    <h2>🗓️ 月別データ <span class="sub">（調査月ごとの収集データ）</span></h2>
+    <div class="tab-btns" id="monthTabBtns">
+{monthly_btns}
+    </div>
+{monthly_panes}
+  </div>
+
   <!-- ── 求人一覧 ── -->
   <div class="card">
-    <h2>📋 求人一覧</h2>
+    <h2>📋 求人一覧（全期間）</h2>
     <div class="filter-bar">
       <select id="fcCompany" onchange="applyFilter()">
         <option value="">企業：すべて</option>
@@ -549,11 +685,19 @@ new Chart(document.getElementById('trendQualChart'), {{
   options: lineOpts
 }});
 
-/* ── タブ切り替え ── */
+/* ── タブ切り替え（トレンドグラフ）── */
 function switchTab(group, name) {{
   document.querySelectorAll(`[id^="${{group}}-"]`).forEach(el => el.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+  event.target.closest('.tab-btns').querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById(`${{group}}-${{name}}`).classList.add('active');
+  event.target.classList.add('active');
+}}
+
+/* ── 月別タブ切り替え ── */
+function switchMonthTab(month) {{
+  document.querySelectorAll('[id^="month-"]').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('#monthTabBtns .tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('month-' + month).classList.add('active');
   event.target.classList.add('active');
 }}
 
