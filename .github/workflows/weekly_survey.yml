@@ -1,0 +1,43 @@
+name: 給与水準 週次調査
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'   # 毎週月曜 0:00 UTC = 9:00 JST
+  workflow_dispatch:        # 手動実行ボタン
+
+permissions:
+  contents: write
+
+jobs:
+  survey:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scraper
+        run: python scripts/scrape_indeed.py
+
+      - name: Generate report
+        run: python scripts/generate_report.py
+
+      - name: Commit & push results
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/salary_master.csv docs/index.html
+          git diff --staged --quiet \
+            && echo "新規データなし — コミットをスキップ" \
+            || git commit -m "chore: weekly salary survey $(date +'%Y-%m-%d')"
+          git push
