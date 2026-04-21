@@ -8,7 +8,8 @@
 salary-research/
 ├── .github/workflows/weekly_survey.yml  # GitHub Actions（毎週月曜 9:00 JST）
 ├── scripts/
-│   ├── scrape_indeed.py                 # Indeed求人スクレイピング
+│   ├── scrape_indeed.py                 # Indeed求人スクレイピング（Selenium）
+│   ├── scrape_careers.py               # 各社採用ページ直接スクレイピング
 │   └── generate_report.py              # HTMLレポート生成
 ├── data/
 │   └── salary_master.csv               # 累積給与データ（追記形式）
@@ -46,7 +47,8 @@ salary-research/
 
 ```bash
 pip install -r requirements.txt
-python scripts/scrape_indeed.py    # 収集（数十分かかる場合あり）
+python scripts/scrape_indeed.py    # Indeed収集（数十分かかる場合あり）
+python scripts/scrape_careers.py   # 各社採用ページ収集
 python scripts/generate_report.py  # レポート生成
 ```
 
@@ -54,8 +56,21 @@ python scripts/generate_report.py  # レポート生成
 
 Settings → Pages → Source: `Deploy from branch` → Branch: `main` / folder: `/docs`
 
+## 各社採用ページURL
+
+| 企業 | 採用ページURL |
+|------|--------------|
+| リタリコ | https://recruit.litalico.jp/ |
+| コペル | https://copelplus.copel.co.jp/saiyou/ |
+| LUMO | https://gotoschool.co.jp/recruit/ |
+| TAKUMI | https://initias-recruit.jp/recruit/ |
+| ネイスプラス | https://ne-is.com/recruit/ |
+| リーフプラス | 調査中（503エラー） |
+| ビーマスポーツ | https://www.biimasports-recruit.com/ |
+
 ## 注意事項
 
 - Indeedの HTML 構造変更でセレクタが機能しなくなることがある。その場合は `scrape_indeed.py` のセレクタを修正する。
 - レート制限のため1回の全件スクレイピングに15〜30分かかる。
 - 同一URLは重複して記録しない（`source_url` で重複排除）。
+- `scrape_careers.py` はリタリコ・ビーマスポーツのみSeleniumを使用（Python sandboxのDNS制限回避）。

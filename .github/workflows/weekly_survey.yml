@@ -26,8 +26,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run scraper
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Run Indeed scraper
         run: python scripts/scrape_indeed.py
+
+      - name: Run career page scraper
+        run: python scripts/scrape_careers.py
 
       - name: Generate report
         run: python scripts/generate_report.py
