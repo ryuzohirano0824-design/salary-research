@@ -52,20 +52,57 @@ def _get(url: str, timeout: int = 15) -> Optional[BeautifulSoup]:
         return None
 
 
-def _row(company: str, title: str, location: str, salary_text: str, url: str) -> dict:
+# 資格キーワード → 正規資格名のマッピング
+QUAL_PATTERNS = [
+    ("児童発達支援管理責任者", ["児童発達支援管理責任者", "サービス管理責任者"]),
+    ("児童指導員",             ["児童指導員", "指導員"]),
+    ("保育士",                 ["保育士"]),
+    ("作業療法士",             ["作業療法士", r"OT[・/）\s]", r"（OT）"]),
+    ("理学療法士",             ["理学療法士", r"PT[・/）\s]", r"（PT）"]),
+]
+
+
+def detect_qualification(title: str) -> str:
+    """求人タイトルから資格名を検出して返す。複数一致は最初のもの。"""
+    for qual, patterns in QUAL_PATTERNS:
+        for pat in patterns:
+            if re.search(pat, title):
+                return qual
+    return ""
+
+
+def detect_all_qualifications(title: str) -> list:
+    """タイトルに含まれる全資格を返す（例: PT/OT → [理学療法士, 作業療法士]）。"""
+    found = []
+    for qual, patterns in QUAL_PATTERNS:
+        for pat in patterns:
+            if re.search(pat, title):
+                found.append(qual)
+                break
+    return found or [""]
+
+
+def _rows(company: str, title: str, location: str, salary_text: str, url: str) -> list:
+    """資格を複数検出した場合は複数行に展開して返す。"""
+    quals = detect_all_qualifications(title)
+    return [_row(company, title, location, salary_text, url, q) for q in quals]
+
+
+def _row(company: str, title: str, location: str, salary_text: str, url: str,
+         qualification: str = "") -> dict:
     s = parse_salary(salary_text)
     return {
-        "date":         date.today().isoformat(),
-        "company":      company,
-        "qualification": "",
-        "job_title":    title,
-        "location":     location,
-        "area":         classify_area(location),
-        "salary_min":   s["min"],
-        "salary_max":   s["max"],
-        "salary_type":  s["type"],
-        "salary_raw":   s["raw"],
-        "source_url":   url,
+        "date":          date.today().isoformat(),
+        "company":       company,
+        "qualification": qualification or detect_qualification(title),
+        "job_title":     title,
+        "location":      location,
+        "area":          classify_area(location),
+        "salary_min":    s["min"],
+        "salary_max":    s["max"],
+        "salary_type":   s["type"],
+        "salary_raw":    s["raw"],
+        "source_url":    url,
     }
 
 
@@ -94,9 +131,9 @@ def scrape_lumo(existing_urls: set) -> list:
 
         texts = [l.strip() for l in detail.get_text("\n").split("\n") if l.strip()]
 
-        h1 = detail.find("h1")
-        raw_title = h1.get_text(strip=True) if h1 else path
-        # "職種名 | ページタイプ | 会社名" → 職種名のみ抽出
+        # LUMO: h1は空でtitleタグに「職種名 | 採用種別 | 会社名」が入る
+        title_tag = detail.find("title")
+        raw_title = title_tag.get_text(strip=True) if title_tag else path
         title = raw_title.split("|")[0].strip() if "|" in raw_title else raw_title
 
         # 給与：「236,500～256,500円」「給与\n236,500～256,500円」形式
@@ -108,7 +145,7 @@ def scrape_lumo(existing_urls: set) -> list:
             if "勤務地" in t and i + 1 < len(texts):
                 location = texts[i + 1]
 
-        results.append(_row("LUMO", title, location, salary_text, url))
+        results.extend(_rows("LUMO", title, location, salary_text, url))
         existing_urls.add(url)
         time.sleep(1.5)
 
@@ -147,7 +184,7 @@ def scrape_takumi(existing_urls: set) -> list:
             if "勤務地" in t and i + 1 < len(texts) and not location:
                 location = texts[i + 1]
 
-        results.append(_row("TAKUMI", title, location, salary_text, url))
+        results.extend(_rows("TAKUMI", title, location, salary_text, url))
         existing_urls.add(url)
         time.sleep(1.0)
 
@@ -292,8 +329,17 @@ def scrape_copel(existing_urls: set) -> list:
                 continue
 
             texts = [l.strip() for l in detail.get_text("\n").split("\n") if l.strip()]
-            h1 = detail.find("h1") or detail.find("h2")
-            title = h1.get_text(strip=True) if h1 else ""
+
+            # タイトル: h1は教室名のことがあるため、
+            # 【正社員】【パート】などが含まれる行を優先して職種名とする
+            title = ""
+            for t in texts[:20]:
+                if re.search(r"(指導員|療法士|保育士|管理責任者|支援員|教室長)", t):
+                    title = t
+                    break
+            if not title:
+                h1 = detail.find("h1") or detail.find("h2")
+                title = h1.get_text(strip=True) if h1 else ""
 
             salary_text = ""
             location = ""
@@ -301,14 +347,13 @@ def scrape_copel(existing_urls: set) -> list:
                 if re.search(r"^(給与|月給|時給|年収)$", t) and i + 1 < len(texts):
                     salary_text = texts[i + 1]
                 if re.search(r"^(勤務地|勤務場所|アクセス)$", t) and not location:
-                    # 次行が郵便番号なら2行先が住所
                     nxt = texts[i + 1] if i + 1 < len(texts) else ""
                     if re.match(r"^〒", nxt) and i + 2 < len(texts):
                         location = texts[i + 2]
                     elif nxt:
                         location = nxt
 
-            results.append(_row("コペル", title, location, salary_text, job_url))
+            results.extend(_rows("コペル", title, location, salary_text, job_url))
             existing_urls.add(job_url)
             time.sleep(1.5)
 
@@ -356,7 +401,7 @@ def scrape_neis(existing_urls: set) -> list:
             if re.search(r"^(勤務地|勤務場所)$", t) and i + 1 < len(texts) and not location:
                 location = texts[i + 1]
 
-        results.append(_row("ネイスプラス", title, location, salary_text, url))
+        results.extend(_rows("ネイスプラス", title, location, salary_text, url))
         existing_urls.add(url)
         time.sleep(1.0)
 
