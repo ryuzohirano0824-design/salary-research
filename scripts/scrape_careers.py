@@ -217,53 +217,40 @@ def scrape_litalico(driver, existing_urls: set) -> list:
     return results
 
 
-# ─── ビーマスポーツ（Selenium） ───────────────────────────────────────────────
+# ─── ビーマスポーツ ────────────────────────────────────────────────────────────
 
-def scrape_bima(driver, existing_urls: set) -> list:
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.support import expected_conditions as EC
-    from selenium.webdriver.common.by import By
+def scrape_bima(existing_urls: set) -> list:
+    """biima.co.jp/sports/recruit/ から募集要項を取得。"""
+    url = "https://biima.co.jp/sports/recruit/"
+    if url in existing_urls:
+        return []
 
-    base = "https://www.biimasports-recruit.com"
+    soup = _get(url)
+    if not soup:
+        return []
+
+    texts = [l.strip() for l in soup.get_text("\n").split("\n") if l.strip()]
+
+    # 正社員 / アルバイト の各募集要項セクションを探す
     results = []
+    for section_title in ["正社員募集要項", "アルバイト募集要項"]:
+        if section_title not in texts:
+            continue
+        idx = texts.index(section_title)
+        chunk = texts[idx: idx + 40]
 
-    try:
-        driver.get(base + "/")
-        time.sleep(3)
-        soup = BeautifulSoup(driver.page_source, "lxml")
+        salary_text = ""
+        location = ""
+        for i, t in enumerate(chunk):
+            if t == "給与" and i + 1 < len(chunk):
+                salary_text = chunk[i + 1]
+            if t == "勤務地" and i + 1 < len(chunk) and not location:
+                location = chunk[i + 1]
 
-        job_links = list(set([
-            a["href"] for a in soup.find_all("a", href=True)
-            if re.search(r"/jobs?/|/recruit/|/career/|/position", a.get("href", ""))
-        ]))[:20]
-
-        for href in job_links:
-            url = href if href.startswith("http") else base + href
-            if url in existing_urls:
-                continue
-
-            driver.get(url)
-            time.sleep(2)
-            detail_soup = BeautifulSoup(driver.page_source, "lxml")
-            texts = [l.strip() for l in detail_soup.get_text("\n").split("\n") if l.strip()]
-
-            h1 = detail_soup.find("h1")
-            title = h1.get_text(strip=True) if h1 else url
-
-            salary_text = ""
-            location = ""
-            for i, t in enumerate(texts):
-                if re.search(r"^(給与|月給|年収|時給)$", t) and i + 1 < len(texts):
-                    salary_text = texts[i + 1]
-                if re.search(r"^(勤務地|勤務場所)$", t) and i + 1 < len(texts) and not location:
-                    location = texts[i + 1]
-
-            results.append(_row("ビーマスポーツ", title, location, salary_text, url))
-            existing_urls.add(url)
-            time.sleep(2)
-
-    except Exception as e:
-        logger.warning(f"  ビーマスポーツ取得エラー: {e}")
+        job_url = f"{url}#{section_title}"
+        if job_url not in existing_urls:
+            results.append(_row("ビーマスポーツ", f"コーチスタッフ（{section_title}）", location, salary_text, job_url))
+            existing_urls.add(job_url)
 
     logger.info(f"  ビーマスポーツ: {len(results)} 件")
     return results
@@ -271,31 +258,32 @@ def scrape_bima(driver, existing_urls: set) -> list:
 
 # ─── コペル ───────────────────────────────────────────────────────────────────
 
+# 首都圏・関西・東海に絞った都道府県リスト（kurazemi.saiyo-job.jp のパス形式）
+COPEL_PREF_PATHS = [
+    "knto/tokyo", "knto/kanagawa", "knto/saitama", "knto/chiba",
+    "knsi/osaka", "knsi/kyoto", "knsi/hyogo", "knsi/nara",
+    "toki/aichi", "toki/shizuoka",
+]
+
 def scrape_copel(existing_urls: set) -> list:
-    """コペルの採用ページ（クラ・ゼミ saiyo-job.jp システム）をスクレイピング。"""
-    base_url = "https://copelplus.copel.co.jp/saiyou/"
-    soup = _get(base_url)
-    if not soup:
-        return []
-
-    # 都道府県リンクを取得
-    pref_links = list(set([
-        a["href"] for a in soup.find_all("a", href=True)
-        if "saiyo-job.jp" in a.get("href", "")
-    ]))
-
+    """コペル採用（kurazemi.saiyo-job.jp）から求人詳細をスクレイピング。"""
+    base = "https://kurazemi.saiyo-job.jp"
     results = []
-    for pref_url in pref_links[:10]:  # 主要10都道府県
-        pref_soup = _get(pref_url)
+
+    for pref_path in COPEL_PREF_PATHS:
+        list_url = f"{base}/dsaiyo/vvvo/pc_job/list/all/{pref_path}"
+        pref_soup = _get(list_url)
         if not pref_soup:
             continue
 
-        job_links = [
-            a["href"] for a in pref_soup.find_all("a", href=True)
-            if "saiyo-job.jp" in a.get("href", "") and "/pc_job/detail/" in a.get("href", "")
-        ]
+        # 求人詳細リンク: /dsaiyo/vvvo/pc_job/show/{office_id}/{job_id}
+        job_links = list(dict.fromkeys([
+            base + a["href"]
+            for a in pref_soup.find_all("a", href=True)
+            if re.match(r"^/dsaiyo/vvvo/pc_job/show/", a.get("href", ""))
+        ]))
 
-        for job_url in job_links[:5]:
+        for job_url in job_links[:5]:  # 各都道府県上位5件
             if job_url in existing_urls:
                 continue
 
@@ -312,8 +300,13 @@ def scrape_copel(existing_urls: set) -> list:
             for i, t in enumerate(texts):
                 if re.search(r"^(給与|月給|時給|年収)$", t) and i + 1 < len(texts):
                     salary_text = texts[i + 1]
-                if re.search(r"^(勤務地|勤務場所|アクセス)$", t) and i + 1 < len(texts) and not location:
-                    location = texts[i + 1]
+                if re.search(r"^(勤務地|勤務場所|アクセス)$", t) and not location:
+                    # 次行が郵便番号なら2行先が住所
+                    nxt = texts[i + 1] if i + 1 < len(texts) else ""
+                    if re.match(r"^〒", nxt) and i + 2 < len(texts):
+                        location = texts[i + 2]
+                    elif nxt:
+                        location = nxt
 
             results.append(_row("コペル", title, location, salary_text, job_url))
             existing_urls.add(job_url)
@@ -397,15 +390,15 @@ def main() -> None:
     logger.info("ネイスプラス スクレイピング開始")
     all_results.extend(scrape_neis(existing_urls))
 
-    # Selenium が必要な社
+    logger.info("ビーマスポーツ スクレイピング開始")
+    all_results.extend(scrape_bima(existing_urls))
+
+    # Selenium が必要な社（DNS sandbox制限のためHeadless Chromeを使用）
     logger.info("Selenium ドライバー起動")
     driver = build_driver()
     try:
         logger.info("リタリコ スクレイピング開始")
         all_results.extend(scrape_litalico(driver, existing_urls))
-
-        logger.info("ビーマスポーツ スクレイピング開始")
-        all_results.extend(scrape_bima(driver, existing_urls))
     finally:
         driver.quit()
 
