@@ -137,6 +137,84 @@ def build_qual_chart_data(rows: list) -> dict:
     return {"labels": COMPANIES, "datasets": datasets}
 
 
+def build_trend_chart_data(rows: list) -> dict:
+    """月次推移グラフ：会社別 平均月給（万円）の時系列折れ線グラフ用データ"""
+    # month → company → [salary values]
+    bucket: dict = defaultdict(lambda: defaultdict(list))
+    for r in rows:
+        v = to_monthly(r)
+        d = r.get("date", "")
+        if v and d:
+            month = d[:7]  # YYYY-MM
+            bucket[month][r["company"]].append(v)
+
+    months = sorted(bucket.keys())
+    if not months:
+        return {"labels": [], "datasets": []}
+
+    # データのある会社だけ表示
+    active_companies = [co for co in COMPANIES
+                        if any(co in bucket[m] for m in months)]
+
+    datasets = []
+    for i, co in enumerate(active_companies):
+        data = []
+        for m in months:
+            vals = bucket[m].get(co, [])
+            data.append(round(statistics.mean(vals), 1) if vals else None)
+        datasets.append({
+            "label": co,
+            "data": data,
+            "borderColor": PALETTE[i % len(PALETTE)],
+            "backgroundColor": PALETTE[i % len(PALETTE)] + "22",
+            "borderWidth": 2,
+            "pointRadius": 4,
+            "pointHoverRadius": 6,
+            "tension": 0.3,
+            "fill": False,
+            "spanGaps": True,
+        })
+
+    return {"labels": months, "datasets": datasets}
+
+
+def build_qual_trend_chart_data(rows: list) -> dict:
+    """月次推移グラフ：資格別 平均月給（万円）の時系列折れ線グラフ用データ"""
+    bucket: dict = defaultdict(lambda: defaultdict(list))
+    for r in rows:
+        v = to_monthly(r)
+        d = r.get("date", "")
+        q = r.get("qualification", "")
+        if v and d and q in QUALIFICATIONS:
+            month = d[:7]
+            bucket[month][q].append(v)
+
+    months = sorted(bucket.keys())
+    if not months:
+        return {"labels": [], "datasets": []}
+
+    datasets = []
+    for i, qual in enumerate(QUALIFICATIONS):
+        data = []
+        for m in months:
+            vals = bucket[m].get(qual, [])
+            data.append(round(statistics.mean(vals), 1) if vals else None)
+        datasets.append({
+            "label": qual,
+            "data": data,
+            "borderColor": PALETTE[i % len(PALETTE)],
+            "backgroundColor": PALETTE[i % len(PALETTE)] + "22",
+            "borderWidth": 2,
+            "pointRadius": 4,
+            "pointHoverRadius": 6,
+            "tension": 0.3,
+            "fill": False,
+            "spanGaps": True,
+        })
+
+    return {"labels": months, "datasets": datasets}
+
+
 def build_area_chart_data(rows: list) -> dict:
     """エリア別×資格別 平均月給グラフ"""
     bucket: dict = defaultdict(list)
@@ -237,17 +315,20 @@ def build_table_rows(rows: list) -> str:
 # ── HTML生成 ───────────────────────────────────────────────────────────────
 
 def generate_html(rows: list) -> str:
-    salary_rows = [r for r in rows if to_monthly(r)]
-    chart_range = build_range_chart_data(rows)
-    chart_qual  = build_qual_chart_data(rows)
-    chart_area  = build_area_chart_data(rows)
-    cmp_table   = build_comparison_table(rows)
-    table_rows  = build_table_rows(rows)
+    salary_rows      = [r for r in rows if to_monthly(r)]
+    chart_range      = build_range_chart_data(rows)
+    chart_qual       = build_qual_chart_data(rows)
+    chart_area       = build_area_chart_data(rows)
+    chart_trend_co   = build_trend_chart_data(rows)
+    chart_trend_qual = build_qual_trend_chart_data(rows)
+    cmp_table        = build_comparison_table(rows)
+    table_rows       = build_table_rows(rows)
 
     today           = date.today().strftime("%Y年%m月%d日")
     total           = len(rows)
     with_salary     = len(salary_rows)
     companies_found = len({r["company"] for r in rows})
+    months_count    = len(set(r["date"][:7] for r in rows if r.get("date")))
 
     options_company = "\n".join(f'<option value="{c}">{c}</option>' for c in COMPANIES)
     options_qual    = "\n".join(f'<option value="{q}">{q}</option>' for q in QUALIFICATIONS)
@@ -268,6 +349,12 @@ a{{color:#1a73e8;text-decoration:none}}
 header{{background:linear-gradient(135deg,#1a73e8 0%,#0d47a1 100%);color:#fff;padding:24px 32px 20px}}
 header h1{{font-size:22px;font-weight:700;letter-spacing:-.3px}}
 header p{{font-size:12px;opacity:.8;margin-top:6px}}
+/* ── タブ ── */
+.tab-btns{{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}}
+.tab-btn{{padding:6px 16px;border:1px solid #d0d7f0;border-radius:20px;background:#fff;
+          font-size:12px;cursor:pointer;color:#555;transition:all .15s}}
+.tab-btn.active{{background:#1a73e8;color:#fff;border-color:#1a73e8;font-weight:600}}
+.tab-pane{{display:none}}.tab-pane.active{{display:block}}
 /* ── Layout ── */
 .container{{max-width:1320px;margin:0 auto;padding:20px 16px 40px}}
 .grid2{{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px}}
@@ -333,7 +420,7 @@ footer{{text-align:center;font-size:11px;color:#bbb;padding:20px}}
 <body>
 <header>
   <h1>📊 福祉・保育業界 給与水準レポート</h1>
-  <p>最終更新: {today}　｜　対象7社・5資格　｜　毎週月曜 9:00 JST 自動更新</p>
+  <p>最終更新: {today}　｜　対象7社・5資格　｜　毎月1日 9:00 JST 自動更新</p>
 </header>
 
 <div class="container">
@@ -344,6 +431,22 @@ footer{{text-align:center;font-size:11px;color:#bbb;padding:20px}}
     <div class="stat"><div class="num">{with_salary}</div><div class="label">給与記載あり</div></div>
     <div class="stat"><div class="num">{companies_found}</div><div class="label">対象企業数</div></div>
     <div class="stat"><div class="num">{len(QUALIFICATIONS)}</div><div class="label">対象資格数</div></div>
+    <div class="stat"><div class="num">{months_count}</div><div class="label">累計調査月数</div></div>
+  </div>
+
+  <!-- ── 月次推移 ── -->
+  <div class="card">
+    <h2>📈 月次給与推移 <span class="sub">（調査月ごとの平均月給 万円/月）</span></h2>
+    <div class="tab-btns">
+      <button class="tab-btn active" onclick="switchTab('trend','company')">企業別</button>
+      <button class="tab-btn"        onclick="switchTab('trend','qual')">資格別</button>
+    </div>
+    <div id="trend-company" class="tab-pane active">
+      <canvas id="trendCompanyChart" height="100"></canvas>
+    </div>
+    <div id="trend-qual" class="tab-pane">
+      <canvas id="trendQualChart" height="100"></canvas>
+    </div>
   </div>
 
   <!-- ── グラフ行 ── -->
@@ -421,6 +524,39 @@ footer{{text-align:center;font-size:11px;color:#bbb;padding:20px}}
 <footer>データソース: Indeed Japan・各社採用ページ　｜　自動収集・給与調査目的　｜　<a href="https://github.com/ryuzohirano0824-design/salary-research">GitHub</a></footer>
 
 <script>
+/* ── 共通オプション（折れ線）── */
+const lineOpts = {{
+  responsive: true,
+  interaction: {{ mode: 'index', intersect: false }},
+  plugins: {{ legend: {{ position: 'top', labels: {{ font: {{ size: 10 }}, boxWidth: 12 }} }} }},
+  scales: {{
+    y: {{ title: {{ display: true, text: '万円/月' }}, beginAtZero: false }},
+    x: {{ ticks: {{ font: {{ size: 11 }} }} }}
+  }}
+}};
+
+/* ── Chart: 月次推移 企業別 ── */
+new Chart(document.getElementById('trendCompanyChart'), {{
+  type: 'line',
+  data: {json.dumps(chart_trend_co, ensure_ascii=False)},
+  options: lineOpts
+}});
+
+/* ── Chart: 月次推移 資格別 ── */
+new Chart(document.getElementById('trendQualChart'), {{
+  type: 'line',
+  data: {json.dumps(chart_trend_qual, ensure_ascii=False)},
+  options: lineOpts
+}});
+
+/* ── タブ切り替え ── */
+function switchTab(group, name) {{
+  document.querySelectorAll(`[id^="${{group}}-"]`).forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+  document.getElementById(`${{group}}-${{name}}`).classList.add('active');
+  event.target.classList.add('active');
+}}
+
 /* ── Chart: 企業別給与レンジ（浮動棒）── */
 new Chart(document.getElementById('rangeChart'), {{
   type: 'bar',

@@ -1,8 +1,8 @@
-name: 給与水準 週次調査
+name: 給与水準 月次調査
 
 on:
   schedule:
-    - cron: '0 0 * * 1'   # 毎週月曜 0:00 UTC = 9:00 JST
+    - cron: '0 0 1 * *'   # 毎月1日 0:00 UTC = 9:00 JST
   workflow_dispatch:        # 手動実行ボタン
 
 permissions:
@@ -58,5 +58,5 @@ jobs:
           git add data/salary_master.csv docs/index.html
           git diff --staged --quiet \
             && echo "新規データなし — コミットをスキップ" \
-            || git commit -m "chore: weekly salary survey $(date +'%Y-%m-%d')"
+            || git commit -m "chore: monthly salary survey $(date +'%Y-%m-%d')"
           git push
