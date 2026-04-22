@@ -21,7 +21,7 @@ OUTPUT_FILE = BASE_DIR / "docs" / "index.html"
 
 COMPANIES = [
     "リタリコ", "コペル", "LUMO", "TAKUMI",
-    "ネイスプラス", "リーフプラス", "ビーマスポーツ",
+    "ネイスプラス", "リーフラス", "ビーマスポーツ",
 ]
 QUALIFICATIONS = [
     "児童発達支援管理責任者", "児童指導員", "保育士",

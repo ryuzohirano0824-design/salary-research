@@ -446,26 +446,24 @@ def scrape_neis(existing_urls: set) -> list:
     return results
 
 
-# ─── リーフプラス ─────────────────────────────────────────────────────────────
+# ─── リーフラス ───────────────────────────────────────────────────────────────
 
-def scrape_leafplus(existing_urls: set) -> list:
-    """リーフプラス採用ページをSSL検証スキップでスクレイピング。
-    トップの募集要項ページと個別求人リンクの両方を試みる。
+def scrape_leafras(existing_urls: set) -> list:
+    """リーフラス株式会社（LEIF）採用ページをスクレイピング。
+    https://leafras.co.jp/recruit/ から求人リンクを収集し各ページをパース。
     """
-    base = "https://leafplus.co.jp"
+    base = "https://leafras.co.jp"
     results = []
 
-    # まず採用トップを取得して求人リンクを収集
     index_soup = _get_insecure(f"{base}/recruit/")
     job_links = []
     if index_soup:
         for a in index_soup.find_all("a", href=True):
             href = a["href"]
-            if re.search(r"/recruit/", href) and href != "/recruit/":
-                url = href if href.startswith("http") else base + href
-                if url not in job_links and "leafplus.co.jp" in url:
-                    job_links.append(url)
-        # リンクが見つからない場合はトップ自体を求人ページとして扱う
+            full = href if href.startswith("http") else base + href.lstrip(".")
+            if "leafras.co.jp" in full and re.search(r"/recruit/", full) \
+                    and full != f"{base}/recruit/" and full not in job_links:
+                job_links.append(full)
         if not job_links:
             job_links = [f"{base}/recruit/"]
 
@@ -479,7 +477,6 @@ def scrape_leafplus(existing_urls: set) -> list:
 
         texts = [l.strip() for l in detail.get_text("\n").split("\n") if l.strip()]
 
-        # タイトル取得
         h1 = detail.find("h1")
         title = h1.get_text(strip=True) if h1 else ""
         if not title:
@@ -495,13 +492,13 @@ def scrape_leafplus(existing_urls: set) -> list:
                 location = texts[i + 1]
 
         if not salary_text:
-            continue  # 給与情報がないページはスキップ
+            continue
 
-        results.extend(_rows("リーフプラス", title, location, salary_text, url))
+        results.extend(_rows("リーフラス", title, location, salary_text, url))
         existing_urls.add(url)
         time.sleep(1.5)
 
-    logger.info(f"  リーフプラス: {len(results)} 件")
+    logger.info(f"  リーフラス: {len(results)} 件")
     return results
 
 
@@ -534,8 +531,8 @@ def main() -> None:
     logger.info("ビーマスポーツ スクレイピング開始")
     all_results.extend(scrape_bima(existing_urls))
 
-    logger.info("リーフプラス スクレイピング開始")
-    all_results.extend(scrape_leafplus(existing_urls))
+    logger.info("リーフラス スクレイピング開始")
+    all_results.extend(scrape_leafras(existing_urls))
 
     # Selenium が必要な社（DNS sandbox制限のためHeadless Chromeを使用）
     logger.info("Selenium ドライバー起動")

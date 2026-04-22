@@ -21,7 +21,7 @@ salary-research/
 
 ## 調査対象
 
-**企業（7社）**: リタリコ、コペル、LUMO、TAKUMI、ネイスプラス、リーフプラス、ビーマスポーツ
+**企業（7社）**: リタリコ、コペル、LUMO、TAKUMI、ネイスプラス、リーフラス、ビーマスポーツ
 
 **資格（5種）**: 児童発達支援管理責任者、児童指導員、保育士、作業療法士、理学療法士
 
@@ -65,8 +65,8 @@ Settings → Pages → Source: `Deploy from branch` → Branch: `main` / folder:
 | LUMO | https://gotoschool.co.jp/recruit/ |
 | TAKUMI | https://initias-recruit.jp/recruit/ |
 | ネイスプラス | https://ne-is.com/recruit/ |
-| リーフプラス | https://leafplus.co.jp/recruit/ （PHP8未対応でサイトクラッシュ中・取得不可） |
-| ビーマスポーツ | https://www.biimasports-recruit.com/ |
+| リーフラス | https://leafras.co.jp/recruit/ （Indeedで "リーフラス" / "LEIF" を検索） |
+| ビーマスポーツ | https://www.biimasports-recruit.com/ （Indeed: "biima sports" / "biima" で検索） |
 
 ## 注意事項
 
