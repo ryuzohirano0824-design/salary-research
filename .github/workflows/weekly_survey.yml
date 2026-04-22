@@ -26,14 +26,23 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # Chrome のみインストール。ChromeDriver は Selenium Manager が自動取得するため不要
-      - name: Install Chrome
+      # Chrome 147 と対応する ChromeDriver 147 を同時にインストール
+      - name: Install Chrome & ChromeDriver (v147)
+        id: setup-chrome
         uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: '147'
+          install-chromedriver: true
 
-      - name: Verify Chrome
-        run: google-chrome --version
+      - name: Verify Chrome & ChromeDriver
+        run: |
+          "${{ steps.setup-chrome.outputs.chrome-path }}" --version
+          "${{ steps.setup-chrome.outputs.chromedriver-path }}" --version
 
       - name: Run Indeed scraper
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+          CHROMEDRIVER_PATH: ${{ steps.setup-chrome.outputs.chromedriver-path }}
         run: python scripts/scrape_indeed.py
 
       - name: Run career page scraper

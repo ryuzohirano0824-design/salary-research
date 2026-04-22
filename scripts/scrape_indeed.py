@@ -7,6 +7,7 @@ salary_master.csv に追記する。同一URLは重複追記しない。
 
 import csv
 import logging
+import os
 import random
 import re
 import time
@@ -153,9 +154,13 @@ def build_driver() -> webdriver.Chrome:
     )
     opts.add_argument("--lang=ja-JP")
 
-    # Selenium Manager（selenium 4.6+ 内蔵）が Chrome バージョンに合った
-    # ChromeDriver を自動取得・キャッシュする。CI / ローカル共通。
-    service = Service()
+    # CI: ワークフローが setup-chrome のアクション出力パスを環境変数で渡す
+    # ローカル: 未設定のまま → Selenium Manager が自動解決
+    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH")
+    chrome_path = os.environ.get("CHROME_PATH")
+    if chrome_path:
+        opts.binary_location = chrome_path
+    service = Service(chromedriver_path) if chromedriver_path else Service()
 
     driver = webdriver.Chrome(service=service, options=opts)
     # webdriver フラグを隠す
