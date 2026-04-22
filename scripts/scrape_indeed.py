@@ -7,6 +7,7 @@ salary_master.csv に追記する。同一URLは重複追記しない。
 
 import csv
 import logging
+import os
 import random
 import re
 import time
@@ -22,7 +23,6 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-from webdriver_manager.chrome import ChromeDriverManager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -142,6 +142,7 @@ def build_driver() -> webdriver.Chrome:
     opts.add_argument("--headless=new")
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
+    opts.add_argument("--disable-gpu")
     opts.add_argument("--disable-blink-features=AutomationControlled")
     opts.add_experimental_option("excludeSwitches", ["enable-automation"])
     opts.add_experimental_option("useAutomationExtension", False)
@@ -153,12 +154,18 @@ def build_driver() -> webdriver.Chrome:
     )
     opts.add_argument("--lang=ja-JP")
 
-    # webdriver-manager が返すパスがバイナリ本体でないことがあるため修正
-    raw_path = ChromeDriverManager().install()
-    driver_path = Path(raw_path)
-    if not driver_path.name == "chromedriver":
-        driver_path = driver_path.parent / "chromedriver"
-    service = Service(str(driver_path))
+    if os.environ.get("CI"):
+        # GitHub Actions: browser-actions/setup-chrome が PATH に配置した chromedriver を使用
+        service = Service()
+    else:
+        # ローカル: webdriver-manager で自動ダウンロード（パスがバイナリ本体でない場合を修正）
+        from webdriver_manager.chrome import ChromeDriverManager
+        raw_path = ChromeDriverManager().install()
+        driver_path = Path(raw_path)
+        if driver_path.name != "chromedriver":
+            driver_path = driver_path.parent / "chromedriver"
+        service = Service(str(driver_path))
+
     driver = webdriver.Chrome(service=service, options=opts)
     # webdriver フラグを隠す
     driver.execute_cdp_cmd(
