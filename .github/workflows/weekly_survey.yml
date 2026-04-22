@@ -26,15 +26,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Install Chrome & ChromeDriver
+      # Chrome のみインストール。ChromeDriver は Selenium Manager が自動取得するため不要
+      - name: Install Chrome
         uses: browser-actions/setup-chrome@v1
-        with:
-          install-chromedriver: true
 
-      - name: Verify Chrome & ChromeDriver
-        run: |
-          google-chrome --version
-          chromedriver --version
+      - name: Verify Chrome
+        run: google-chrome --version
 
       - name: Run Indeed scraper
         run: python scripts/scrape_indeed.py
