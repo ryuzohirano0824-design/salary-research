@@ -364,42 +364,57 @@ def scrape_copel(existing_urls: set) -> list:
 # ─── ネイスプラス ─────────────────────────────────────────────────────────────
 
 def scrape_neis(existing_urls: set) -> list:
-    """ネイスプラスの採用ページをスクレイピング。"""
+    """ネイスプラスの求人詳細ページ（/recruit/career/job-description/---id-N.html）をスクレイピング。
+    まずインデックスページからリンクを収集し、見つからなければ既知IDで補完する。
+    """
     base = "https://ne-is.com"
-    soup = _get(f"{base}/recruit/")
-    if not soup:
-        return []
+    career_index = f"{base}/recruit/career/"
 
-    # 仕事紹介などのリンクを探す
-    job_links = list(set([
-        a["href"] for a in soup.find_all("a", href=True)
-        if re.search(r"/recruit/(?!$|#|people)", a.get("href", ""))
-    ]))
+    # インデックスページからリンクを収集
+    index_soup = _get(career_index)
+    job_links = []
+    if index_soup:
+        for a in index_soup.find_all("a", href=True):
+            href = a["href"]
+            if "job-description" in href and href.endswith(".html"):
+                url = href if href.startswith("http") else base + "/" + href.lstrip("/")
+                if url not in job_links:
+                    job_links.append(url)
+
+    # インデックスから取れなければ既知IDで補完
+    if not job_links:
+        known_ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+        job_links = [
+            f"{base}/recruit/career/job-description/---id-{i}.html"
+            for i in known_ids
+        ]
 
     results = []
-    visited = {f"{base}/recruit/"}
-
-    for href in job_links[:10]:
-        url = href if href.startswith("http") else base + href
-        if url in existing_urls or url in visited:
+    for url in job_links:
+        if url in existing_urls:
             continue
-        visited.add(url)
 
         detail = _get(url)
         if not detail:
             continue
 
         texts = [l.strip() for l in detail.get_text("\n").split("\n") if l.strip()]
-        h1 = detail.find("h1")
-        title = h1.get_text(strip=True) if h1 else url
 
+        # 職種・勤務場所・給与をラベル→次行パターンで抽出
+        title = ""
         salary_text = ""
         location = ""
         for i, t in enumerate(texts):
-            if re.search(r"^(給与|月給|時給|年収)$", t) and i + 1 < len(texts):
+            if t == "職種" and i + 1 < len(texts) and not title:
+                title = texts[i + 1]
+            if re.search(r"^(給与|月給|時給|年収)$", t) and i + 1 < len(texts) and not salary_text:
                 salary_text = texts[i + 1]
-            if re.search(r"^(勤務地|勤務場所)$", t) and i + 1 < len(texts) and not location:
+            if re.search(r"^(勤務場所|勤務地)$", t) and i + 1 < len(texts) and not location:
                 location = texts[i + 1]
+
+        if not title:
+            h1 = detail.find("h1")
+            title = h1.get_text(strip=True) if h1 else url
 
         results.extend(_rows("ネイスプラス", title, location, salary_text, url))
         existing_urls.add(url)
