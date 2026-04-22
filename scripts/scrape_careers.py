@@ -9,12 +9,14 @@ import csv
 import logging
 import re
 import time
+import warnings
 from datetime import date
 from pathlib import Path
 
 from typing import Optional
 
 import requests
+import urllib3
 from bs4 import BeautifulSoup
 
 from scrape_indeed import (
@@ -49,6 +51,20 @@ def _get(url: str, timeout: int = 15) -> Optional[BeautifulSoup]:
         return BeautifulSoup(r.text, "lxml")
     except Exception as e:
         logger.warning(f"  GET失敗 {url}: {e}")
+        return None
+
+
+def _get_insecure(url: str, timeout: int = 15) -> Optional[BeautifulSoup]:
+    """SSL証明書検証をスキップしてGETする（証明書エラーのあるサイト用）。"""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", urllib3.exceptions.InsecureRequestWarning)
+            r = requests.get(url, headers=HDR, timeout=timeout,
+                             allow_redirects=True, verify=False)
+        r.encoding = r.apparent_encoding
+        return BeautifulSoup(r.text, "lxml")
+    except Exception as e:
+        logger.warning(f"  GET失敗（SSL無効） {url}: {e}")
         return None
 
 
@@ -416,11 +432,76 @@ def scrape_neis(existing_urls: set) -> list:
             h1 = detail.find("h1")
             title = h1.get_text(strip=True) if h1 else url
 
+        # 職種・給与が両方空のページ（採用TOPや説明ページ等）はスキップ
+        if not title or not salary_text:
+            logger.debug(f"  スキップ（データ不足）: {url}")
+            existing_urls.add(url)  # 再取得しないよう登録だけする
+            continue
+
         results.extend(_rows("ネイスプラス", title, location, salary_text, url))
         existing_urls.add(url)
         time.sleep(1.0)
 
     logger.info(f"  ネイスプラス: {len(results)} 件")
+    return results
+
+
+# ─── リーフプラス ─────────────────────────────────────────────────────────────
+
+def scrape_leafplus(existing_urls: set) -> list:
+    """リーフプラス採用ページをSSL検証スキップでスクレイピング。
+    トップの募集要項ページと個別求人リンクの両方を試みる。
+    """
+    base = "https://leafplus.co.jp"
+    results = []
+
+    # まず採用トップを取得して求人リンクを収集
+    index_soup = _get_insecure(f"{base}/recruit/")
+    job_links = []
+    if index_soup:
+        for a in index_soup.find_all("a", href=True):
+            href = a["href"]
+            if re.search(r"/recruit/", href) and href != "/recruit/":
+                url = href if href.startswith("http") else base + href
+                if url not in job_links and "leafplus.co.jp" in url:
+                    job_links.append(url)
+        # リンクが見つからない場合はトップ自体を求人ページとして扱う
+        if not job_links:
+            job_links = [f"{base}/recruit/"]
+
+    for url in job_links[:20]:
+        if url in existing_urls:
+            continue
+
+        detail = _get_insecure(url)
+        if not detail:
+            continue
+
+        texts = [l.strip() for l in detail.get_text("\n").split("\n") if l.strip()]
+
+        # タイトル取得
+        h1 = detail.find("h1")
+        title = h1.get_text(strip=True) if h1 else ""
+        if not title:
+            title_tag = detail.find("title")
+            title = title_tag.get_text(strip=True).split("|")[0].strip() if title_tag else url
+
+        salary_text = ""
+        location = ""
+        for i, t in enumerate(texts):
+            if re.search(r"^(給与|月給|時給|年収|賃金)$", t) and i + 1 < len(texts) and not salary_text:
+                salary_text = texts[i + 1]
+            if re.search(r"^(勤務地|勤務場所|就業場所)$", t) and i + 1 < len(texts) and not location:
+                location = texts[i + 1]
+
+        if not salary_text:
+            continue  # 給与情報がないページはスキップ
+
+        results.extend(_rows("リーフプラス", title, location, salary_text, url))
+        existing_urls.add(url)
+        time.sleep(1.5)
+
+    logger.info(f"  リーフプラス: {len(results)} 件")
     return results
 
 
@@ -452,6 +533,9 @@ def main() -> None:
 
     logger.info("ビーマスポーツ スクレイピング開始")
     all_results.extend(scrape_bima(existing_urls))
+
+    logger.info("リーフプラス スクレイピング開始")
+    all_results.extend(scrape_leafplus(existing_urls))
 
     # Selenium が必要な社（DNS sandbox制限のためHeadless Chromeを使用）
     logger.info("Selenium ドライバー起動")

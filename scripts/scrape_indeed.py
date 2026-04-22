@@ -122,6 +122,12 @@ def parse_salary(text: str) -> dict:
         if mans:
             result["min"] = to_yen(mans[0])
             result["max"] = to_yen(mans[1]) if len(mans) > 1 else to_yen(mans[0])
+        else:
+            # 「236,500～256,500円」のような万単位なし・プレフィックスなし形式
+            nums = re.findall(r"(\d{4,})", clean)
+            if nums:
+                result["min"] = nums[0]
+                result["max"] = nums[1] if len(nums) > 1 else nums[0]
 
     return result
 

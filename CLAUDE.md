@@ -65,7 +65,7 @@ Settings → Pages → Source: `Deploy from branch` → Branch: `main` / folder:
 | LUMO | https://gotoschool.co.jp/recruit/ |
 | TAKUMI | https://initias-recruit.jp/recruit/ |
 | ネイスプラス | https://ne-is.com/recruit/ |
-| リーフプラス | 調査中（503エラー） |
+| リーフプラス | https://leafplus.co.jp/recruit/ （PHP8未対応でサイトクラッシュ中・取得不可） |
 | ビーマスポーツ | https://www.biimasports-recruit.com/ |
 
 ## 注意事項
