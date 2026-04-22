@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
-"""給与レポートHTML生成スクリプト
+"""給与レポートHTML生成スクリプト（改良版）
 
 salary_master.csv を読み込み、GitHub Pages 向けの index.html を生成する。
+・会社別×資格別 給与比較表
+・給与レンジ浮動棒グラフ
+・エリア別グラフ
+・フィルター機能（会社・資格・エリア・ソース・給与あり絞り込み）
 """
 
 import csv
@@ -25,15 +29,13 @@ QUALIFICATIONS = [
 ]
 AREAS = ["首都圏", "関西", "東海", "その他"]
 
-# Chart.js カラーパレット
-COLORS = [
-    "rgba(66,133,244,0.85)",   # blue
-    "rgba(234,67,53,0.85)",    # red
-    "rgba(251,188,5,0.85)",    # yellow
-    "rgba(52,168,83,0.85)",    # green
-    "rgba(255,109,0,0.85)",    # orange
+PALETTE = [
+    "#4285F4", "#EA4335", "#FBBC05", "#34A853", "#FF6D00",
+    "#46BDC6", "#AB47BC",
 ]
 
+
+# ── データ読み込み ──────────────────────────────────────────────────────────
 
 def load_data() -> list:
     if not DATA_FILE.exists():
@@ -42,10 +44,12 @@ def load_data() -> list:
         return list(csv.DictReader(f))
 
 
-def to_monthly(row: dict):
-    """給与を月額換算（万円）して返す。算出できない場合は None。"""
+# ── 給与換算 ───────────────────────────────────────────────────────────────
+
+def to_monthly(row: dict, field: str = "salary_min"):
+    """給与を月額（万円）に換算。算出できない場合は None。"""
     try:
-        val = int(row["salary_min"])
+        val = int(row[field])
         if not val:
             return None
         t = row.get("salary_type", "")
@@ -54,44 +58,91 @@ def to_monthly(row: dict):
         elif t == "annual":
             return val / 10_000 / 12
         elif t == "hourly":
-            return val * 160 / 10_000   # 月160h想定
+            return val * 160 / 10_000
         elif t == "daily":
-            return val * 20 / 10_000    # 月20日想定
+            return val * 20 / 10_000
+        elif t == "unknown":
+            # 10万円以上なら月給とみなす（LUMOのプレフィックスなし形式など）
+            if val >= 100_000:
+                return val / 10_000
+            elif val < 5_000:        # 時給相当
+                return val * 160 / 10_000
+        return None
     except (ValueError, TypeError):
         return None
 
 
-def build_chart_data(rows: list) -> dict:
-    """会社別・資格別の平均月額（万円）を Chart.js 形式で返す。"""
+def fmt_man(v) -> str:
+    return f"{v:.1f}" if v is not None else "—"
+
+
+# ── グラフデータ ───────────────────────────────────────────────────────────
+
+def build_range_chart_data(rows: list) -> dict:
+    """会社別 給与レンジ浮動棒グラフ用データ（Chart.js floating bar）"""
+    bucket: dict = defaultdict(list)
+    for r in rows:
+        mn = to_monthly(r, "salary_min")
+        mx = to_monthly(r, "salary_max")
+        if mn and mx:
+            bucket[r["company"]].append((mn, mx))
+
+    labels, data, colors = [], [], []
+    for i, co in enumerate(COMPANIES):
+        vals = bucket.get(co, [])
+        if not vals:
+            continue
+        avg_min = round(statistics.mean(v[0] for v in vals), 1)
+        avg_max = round(statistics.mean(v[1] for v in vals), 1)
+        labels.append(co)
+        data.append([avg_min, avg_max])
+        colors.append(PALETTE[i % len(PALETTE)])
+
+    return {
+        "labels": labels,
+        "datasets": [{
+            "label": "給与レンジ（万円/月）",
+            "data": data,
+            "backgroundColor": colors,
+            "borderColor": colors,
+            "borderWidth": 2,
+            "borderSkipped": False,
+        }]
+    }
+
+
+def build_qual_chart_data(rows: list) -> dict:
+    """資格別×会社別 平均月給グラフ"""
     bucket: dict = defaultdict(list)
     for r in rows:
         v = to_monthly(r)
-        if v:
+        if v and r["qualification"] in QUALIFICATIONS:
             bucket[(r["company"], r["qualification"])].append(v)
 
     datasets = []
     for i, qual in enumerate(QUALIFICATIONS):
         data = []
-        for company in COMPANIES:
-            vals = bucket.get((company, qual), [])
-            data.append(round(statistics.mean(vals), 1) if vals else 0)
+        for co in COMPANIES:
+            vals = bucket.get((co, qual), [])
+            data.append(round(statistics.mean(vals), 1) if vals else None)
         datasets.append({
             "label": qual,
             "data": data,
-            "backgroundColor": COLORS[i % len(COLORS)],
-            "borderColor": COLORS[i % len(COLORS)].replace("0.85", "1"),
+            "backgroundColor": PALETTE[i % len(PALETTE)] + "CC",
+            "borderColor": PALETTE[i % len(PALETTE)],
             "borderWidth": 1,
+            "spanGaps": True,
         })
 
     return {"labels": COMPANIES, "datasets": datasets}
 
 
 def build_area_chart_data(rows: list) -> dict:
-    """エリア別の平均月額を資格ごとに集計。"""
+    """エリア別×資格別 平均月給グラフ"""
     bucket: dict = defaultdict(list)
     for r in rows:
         v = to_monthly(r)
-        if v:
+        if v and r["qualification"] in QUALIFICATIONS:
             bucket[(r["area"], r["qualification"])].append(v)
 
     datasets = []
@@ -99,53 +150,108 @@ def build_area_chart_data(rows: list) -> dict:
         data = []
         for area in AREAS:
             vals = bucket.get((area, qual), [])
-            data.append(round(statistics.mean(vals), 1) if vals else 0)
+            data.append(round(statistics.mean(vals), 1) if vals else None)
         datasets.append({
             "label": qual,
             "data": data,
-            "backgroundColor": COLORS[i % len(COLORS)],
+            "backgroundColor": PALETTE[i % len(PALETTE)] + "CC",
+            "borderColor": PALETTE[i % len(PALETTE)],
             "borderWidth": 1,
+            "spanGaps": True,
         })
+
     return {"labels": AREAS, "datasets": datasets}
 
 
+# ── 比較表 ─────────────────────────────────────────────────────────────────
+
+def build_comparison_table(rows: list) -> str:
+    """会社別×資格別 給与比較テーブル HTML"""
+    bucket: dict = defaultdict(list)
+    for r in rows:
+        mn = to_monthly(r, "salary_min")
+        mx = to_monthly(r, "salary_max")
+        if mn and r["qualification"]:
+            bucket[(r["company"], r["qualification"])].append((mn, mx or mn))
+
+    active_companies = [co for co in COMPANIES
+                        if any((co, q) in bucket for q in QUALIFICATIONS)]
+
+    header = "<tr><th>資格</th>" + "".join(f"<th>{co}</th>" for co in active_companies) + "</tr>"
+
+    body = ""
+    for qual in QUALIFICATIONS:
+        row_html = f"<tr><td class='qual-cell'>{qual}</td>"
+        for co in active_companies:
+            vals = bucket.get((co, qual), [])
+            if vals:
+                avg_mn = statistics.mean(v[0] for v in vals)
+                avg_mx = statistics.mean(v[1] for v in vals)
+                n = len(vals)
+                cell = (f"<td class='salary-ok'>"
+                        f"<span class='range'>{fmt_man(avg_mn)}〜{fmt_man(avg_mx)}万</span>"
+                        f"<span class='cnt'>n={n}</span></td>")
+            else:
+                cell = "<td class='no-data'>—</td>"
+            row_html += cell
+        row_html += "</tr>"
+        body += row_html
+
+    return f"<table class='cmp-tbl'><thead>{header}</thead><tbody>{body}</tbody></table>"
+
+
+# ── 求人一覧行 ─────────────────────────────────────────────────────────────
+
 def build_table_rows(rows: list) -> str:
     html = ""
-    for r in sorted(rows, key=lambda x: x.get("date", ""), reverse=True)[:1000]:
-        title = (r.get("job_title") or "")[:45]
-        salary = r.get("salary_raw") or "－"
-        url = r.get("source_url", "")
+    for r in sorted(rows, key=lambda x: (x.get("company", ""), x.get("qualification", ""))):
+        mn = to_monthly(r, "salary_min")
+        mx = to_monthly(r, "salary_max")
+        has_salary = "1" if mn else "0"
+        salary_disp = r.get("salary_raw") or "—"
+        range_disp = (f"{fmt_man(mn)}〜{fmt_man(mx)}万" if mn else "")
+        source = "Indeed" if "indeed.com" in r.get("source_url", "") else "採用ページ"
+        src_cls = "src-indeed" if source == "Indeed" else "src-career"
         area = r.get("area", "その他")
+        url = r.get("source_url", "")
+        title = (r.get("job_title") or "")[:50]
+        qual = r.get("qualification") or "—"
         html += (
-            f"<tr>"
-            f"<td>{r.get('date','')}</td>"
+            f'<tr data-company="{r.get("company","")}" '
+            f'data-qual="{r.get("qualification","")}" '
+            f'data-area="{area}" data-source="{source}" '
+            f'data-salary="{has_salary}">'
             f"<td>{r.get('company','')}</td>"
-            f"<td>{r.get('qualification','')}</td>"
+            f"<td>{qual}</td>"
             f"<td class='title-cell'>{title}</td>"
-            f"<td>{r.get('location','')}</td>"
             f"<td><span class='badge badge-{area}'>{area}</span></td>"
-            f"<td class='salary-cell'>{salary}</td>"
-            f"<td><a href='{url}' target='_blank' rel='noopener noreferrer'>🔗</a></td>"
+            f"<td class='salary-raw'>{salary_disp}</td>"
+            f"<td class='salary-range'>{range_disp}</td>"
+            f"<td><span class='badge {src_cls}'>{source}</span></td>"
+            f"<td><a href='{url}' target='_blank' rel='noopener'>🔗</a></td>"
             f"</tr>\n"
         )
     return html
 
 
+# ── HTML生成 ───────────────────────────────────────────────────────────────
+
 def generate_html(rows: list) -> str:
-    salary_rows = [r for r in rows if r.get("salary_min")]
-    chart_data = build_chart_data(rows)
-    area_chart_data = build_area_chart_data(rows)
-    table_rows = build_table_rows(rows)
+    salary_rows = [r for r in rows if to_monthly(r)]
+    chart_range = build_range_chart_data(rows)
+    chart_qual  = build_qual_chart_data(rows)
+    chart_area  = build_area_chart_data(rows)
+    cmp_table   = build_comparison_table(rows)
+    table_rows  = build_table_rows(rows)
 
-    today = date.today().strftime("%Y年%m月%d日")
-    total = len(rows)
-    with_salary = len(salary_rows)
+    today           = date.today().strftime("%Y年%m月%d日")
+    total           = len(rows)
+    with_salary     = len(salary_rows)
     companies_found = len({r["company"] for r in rows})
-    quals_found = len({r["qualification"] for r in rows if r["qualification"]})
 
-    options_company = "\n".join(f"<option>{c}</option>" for c in COMPANIES)
-    options_qual = "\n".join(f"<option>{q}</option>" for q in QUALIFICATIONS)
-    options_area = "\n".join(f"<option>{a}</option>" for a in AREAS)
+    options_company = "\n".join(f'<option value="{c}">{c}</option>' for c in COMPANIES)
+    options_qual    = "\n".join(f'<option value="{q}">{q}</option>' for q in QUALIFICATIONS)
+    options_area    = "\n".join(f'<option value="{a}">{a}</option>' for a in AREAS)
 
     return f"""<!DOCTYPE html>
 <html lang="ja">
@@ -155,93 +261,153 @@ def generate_html(rows: list) -> str:
 <title>福祉・保育業界 給与水準レポート</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <style>
-*, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
-body {{ font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
-       background: #f4f6fb; color: #222; font-size: 14px; }}
-header {{ background: linear-gradient(135deg,#1a73e8,#0d47a1); color:#fff;
-          padding: 20px 32px; }}
-header h1 {{ font-size: 20px; font-weight: 700; }}
-header p  {{ font-size: 12px; opacity: .85; margin-top: 4px; }}
-.container {{ max-width: 1280px; margin: 0 auto; padding: 20px 16px; }}
-.stats {{ display: grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr));
-          gap: 12px; margin-bottom: 20px; }}
-.stat  {{ background:#fff; border-radius:8px; padding:14px 18px;
-          box-shadow:0 1px 3px rgba(0,0,0,.08); }}
-.stat .num   {{ font-size: 26px; font-weight:700; color:#1a73e8; }}
-.stat .label {{ font-size: 11px; color:#777; margin-top:3px; }}
-.card  {{ background:#fff; border-radius:8px; padding:20px 24px;
-          box-shadow:0 1px 3px rgba(0,0,0,.08); margin-bottom:20px; }}
-.card h2 {{ font-size:15px; font-weight:600; margin-bottom:14px; color:#333;
-            border-left:3px solid #1a73e8; padding-left:10px; }}
-.charts-row {{ display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:20px; }}
-@media(max-width:768px) {{ .charts-row {{ grid-template-columns:1fr; }} }}
-.filter-bar {{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }}
-.filter-bar select {{ padding:5px 10px; border:1px solid #ddd; border-radius:4px;
-                      font-size:13px; background:#fff; }}
-.tbl-wrap {{ overflow-x:auto; }}
-table {{ width:100%; border-collapse:collapse; font-size:13px; }}
-th {{ background:#f0f4ff; text-align:left; padding:7px 10px;
-      border-bottom:2px solid #ddd; white-space:nowrap; }}
-td {{ padding:6px 10px; border-bottom:1px solid #f2f2f2; vertical-align:middle; }}
-tr:hover td {{ background:#fafbff; }}
-.title-cell {{ max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
-.salary-cell {{ font-weight:600; color:#1a73e8; white-space:nowrap; }}
-.badge {{ display:inline-block; padding:1px 7px; border-radius:10px;
-          font-size:11px; font-weight:600; }}
-.badge-首都圏 {{ background:#e8f0fe; color:#1a73e8; }}
-.badge-関西   {{ background:#fce8e6; color:#c5221f; }}
-.badge-東海   {{ background:#fef7e0; color:#b06000; }}
-.badge-その他 {{ background:#e6f4ea; color:#137333; }}
-footer {{ text-align:center; font-size:12px; color:#aaa; padding:20px; }}
+*,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;background:#f0f2f7;color:#1a1a2e;font-size:14px;line-height:1.5}}
+a{{color:#1a73e8;text-decoration:none}}
+/* ── Header ── */
+header{{background:linear-gradient(135deg,#1a73e8 0%,#0d47a1 100%);color:#fff;padding:24px 32px 20px}}
+header h1{{font-size:22px;font-weight:700;letter-spacing:-.3px}}
+header p{{font-size:12px;opacity:.8;margin-top:6px}}
+/* ── Layout ── */
+.container{{max-width:1320px;margin:0 auto;padding:20px 16px 40px}}
+.grid2{{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px}}
+.grid3{{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-bottom:20px}}
+@media(max-width:900px){{.grid2,.grid3{{grid-template-columns:1fr}}}}
+/* ── Stats ── */
+.stats{{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:20px}}
+.stat{{background:#fff;border-radius:10px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.08);border-top:3px solid #1a73e8}}
+.stat .num{{font-size:32px;font-weight:800;color:#1a73e8;line-height:1}}
+.stat .label{{font-size:11px;color:#888;margin-top:5px}}
+/* ── Card ── */
+.card{{background:#fff;border-radius:10px;padding:22px 24px;box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:20px}}
+.card h2{{font-size:14px;font-weight:700;margin-bottom:16px;color:#1a1a2e;
+          border-left:3px solid #1a73e8;padding-left:10px;display:flex;align-items:center;gap:6px}}
+.card h2 .sub{{font-size:11px;color:#888;font-weight:400}}
+/* ── 比較表 ── */
+.cmp-tbl{{width:100%;border-collapse:collapse;font-size:13px}}
+.cmp-tbl th{{background:#f0f4ff;padding:8px 14px;text-align:center;
+             border:1px solid #e0e7ff;white-space:nowrap;font-size:12px}}
+.cmp-tbl td{{padding:8px 14px;border:1px solid #f0f0f0;vertical-align:middle}}
+.qual-cell{{font-weight:600;white-space:nowrap;background:#fafbff;font-size:12px}}
+.salary-ok{{text-align:center}}
+.salary-ok .range{{font-weight:700;color:#1a73e8;display:block;font-size:13px}}
+.salary-ok .cnt{{font-size:10px;color:#aaa;display:block;margin-top:1px}}
+.no-data{{text-align:center;color:#ccc;font-size:18px}}
+/* ── フィルターバー ── */
+.filter-bar{{display:flex;gap:8px;flex-wrap:wrap;align-items:center;
+             background:#f8f9ff;padding:12px 14px;border-radius:8px;margin-bottom:14px}}
+.filter-bar select{{padding:6px 10px;border:1px solid #d0d7f0;border-radius:6px;
+                    font-size:12px;background:#fff;color:#333;cursor:pointer}}
+.filter-bar label{{font-size:12px;display:flex;align-items:center;gap:5px;
+                   cursor:pointer;color:#555}}
+.filter-bar input[type=checkbox]{{cursor:pointer}}
+.result-count{{margin-left:auto;font-size:12px;color:#888}}
+/* ── テーブル ── */
+.tbl-wrap{{overflow-x:auto}}
+table.list-tbl{{width:100%;border-collapse:collapse;font-size:12px}}
+.list-tbl th{{background:#f0f4ff;text-align:left;padding:8px 10px;
+              border-bottom:2px solid #d8e2ff;white-space:nowrap;font-size:12px;
+              position:sticky;top:0;z-index:1}}
+.list-tbl td{{padding:7px 10px;border-bottom:1px solid #f3f3f3;vertical-align:middle}}
+.list-tbl tr:hover td{{background:#fafbff}}
+.title-cell{{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.salary-raw{{color:#555;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.salary-range{{font-weight:700;color:#1a73e8;white-space:nowrap}}
+/* ── バッジ ── */
+.badge{{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap}}
+.badge-首都圏{{background:#e8f0fe;color:#1a73e8}}
+.badge-関西  {{background:#fce8e6;color:#c5221f}}
+.badge-東海  {{background:#fef7e0;color:#b06000}}
+.badge-その他{{background:#e6f4ea;color:#137333}}
+.src-indeed{{background:#fff3cd;color:#856404}}
+.src-career{{background:#e2f0fb;color:#0c5460}}
+/* ── ソート矢印 ── */
+.list-tbl th.sortable{{cursor:pointer;user-select:none}}
+.list-tbl th.sortable:hover{{background:#dce8ff}}
+.sort-asc::after{{content:" ↑"}}
+.sort-desc::after{{content:" ↓"}}
+/* ── フッター ── */
+footer{{text-align:center;font-size:11px;color:#bbb;padding:20px}}
 </style>
 </head>
 <body>
 <header>
   <h1>📊 福祉・保育業界 給与水準レポート</h1>
-  <p>最終更新: {today}　｜　Indeed求人データ自動収集　｜　毎週月曜 9:00 JST 更新</p>
+  <p>最終更新: {today}　｜　対象7社・5資格　｜　毎週月曜 9:00 JST 自動更新</p>
 </header>
+
 <div class="container">
 
+  <!-- ── サマリーカード ── -->
   <div class="stats">
-    <div class="stat"><div class="num">{total}</div><div class="label">累計求人数</div></div>
+    <div class="stat"><div class="num">{total}</div><div class="label">累計収集件数</div></div>
     <div class="stat"><div class="num">{with_salary}</div><div class="label">給与記載あり</div></div>
     <div class="stat"><div class="num">{companies_found}</div><div class="label">対象企業数</div></div>
-    <div class="stat"><div class="num">{quals_found}</div><div class="label">対象資格数</div></div>
+    <div class="stat"><div class="num">{len(QUALIFICATIONS)}</div><div class="label">対象資格数</div></div>
   </div>
 
-  <div class="charts-row">
+  <!-- ── グラフ行 ── -->
+  <div class="grid2">
     <div class="card">
-      <h2>企業別・資格別 平均月給（万円）</h2>
-      <canvas id="companyChart"></canvas>
+      <h2>🏢 企業別 給与レンジ <span class="sub">（平均最低〜最高 万円/月）</span></h2>
+      <canvas id="rangeChart" height="200"></canvas>
     </div>
     <div class="card">
-      <h2>エリア別・資格別 平均月給（万円）</h2>
-      <canvas id="areaChart"></canvas>
+      <h2>📍 エリア別×資格別 平均月給 <span class="sub">（万円/月）</span></h2>
+      <canvas id="areaChart" height="200"></canvas>
     </div>
   </div>
 
   <div class="card">
-    <h2>求人一覧</h2>
+    <h2>📋 資格別×企業別 平均月給 <span class="sub">（万円/月）</span></h2>
+    <canvas id="qualChart" height="100"></canvas>
+  </div>
+
+  <!-- ── 比較表 ── -->
+  <div class="card">
+    <h2>📊 会社別・資格別 給与比較表 <span class="sub">（平均 最低〜最高 万円/月）</span></h2>
+    <div class="tbl-wrap">{cmp_table}</div>
+  </div>
+
+  <!-- ── 求人一覧 ── -->
+  <div class="card">
+    <h2>📋 求人一覧</h2>
     <div class="filter-bar">
-      <select id="fcCompany" onchange="filterTable()">
+      <select id="fcCompany" onchange="applyFilter()">
         <option value="">企業：すべて</option>
         {options_company}
       </select>
-      <select id="fcQual" onchange="filterTable()">
+      <select id="fcQual" onchange="applyFilter()">
         <option value="">資格：すべて</option>
         {options_qual}
       </select>
-      <select id="fcArea" onchange="filterTable()">
+      <select id="fcArea" onchange="applyFilter()">
         <option value="">エリア：すべて</option>
         {options_area}
       </select>
+      <select id="fcSource" onchange="applyFilter()">
+        <option value="">ソース：すべて</option>
+        <option value="Indeed">Indeed</option>
+        <option value="採用ページ">採用ページ</option>
+      </select>
+      <label>
+        <input type="checkbox" id="fcSalary" onchange="applyFilter()" checked>
+        給与あり のみ
+      </label>
+      <span class="result-count" id="resultCount"></span>
     </div>
     <div class="tbl-wrap">
-      <table>
+      <table class="list-tbl">
         <thead>
           <tr>
-            <th>日付</th><th>企業</th><th>資格</th><th>求人タイトル</th>
-            <th>勤務地</th><th>エリア</th><th>給与</th><th>URL</th>
+            <th class="sortable" onclick="sortTable(0)">企業</th>
+            <th class="sortable" onclick="sortTable(1)">資格</th>
+            <th>求人タイトル</th>
+            <th class="sortable" onclick="sortTable(3)">エリア</th>
+            <th>給与（原文）</th>
+            <th class="sortable" onclick="sortTable(5)">月額換算</th>
+            <th>ソース</th>
+            <th>URL</th>
           </tr>
         </thead>
         <tbody id="tblBody">
@@ -252,28 +418,40 @@ footer {{ text-align:center; font-size:12px; color:#aaa; padding:20px; }}
   </div>
 
 </div>
-<footer>データソース: Indeed Japan　｜　自動収集・研究目的のみ　｜　<a href="https://github.com" style="color:#aaa;">GitHub</a></footer>
+<footer>データソース: Indeed Japan・各社採用ページ　｜　自動収集・給与調査目的　｜　<a href="https://github.com/ryuzohirano0824-design/salary-research">GitHub</a></footer>
 
 <script>
-const companyChart = new Chart(document.getElementById('companyChart'), {{
+/* ── Chart: 企業別給与レンジ（浮動棒）── */
+new Chart(document.getElementById('rangeChart'), {{
   type: 'bar',
-  data: {json.dumps(chart_data, ensure_ascii=False)},
+  data: {json.dumps(chart_range, ensure_ascii=False)},
   options: {{
     responsive: true,
-    plugins: {{ legend: {{ position: 'top', labels: {{ font: {{ size: 11 }} }} }} }},
+    plugins: {{
+      legend: {{ display: false }},
+      tooltip: {{
+        callbacks: {{
+          label: ctx => {{
+            const d = ctx.raw;
+            return Array.isArray(d) ? `${{d[0]}}〜${{d[1]}}万円/月` : d + '万円/月';
+          }}
+        }}
+      }}
+    }},
     scales: {{
-      y: {{ title: {{ display: true, text: '万円/月' }}, beginAtZero: true }},
-      x: {{ ticks: {{ font: {{ size: 10 }} }} }}
+      y: {{ title: {{ display: true, text: '万円/月' }}, min: 0 }},
+      x: {{ ticks: {{ font: {{ size: 11 }} }} }}
     }}
   }}
 }});
 
-const areaChart = new Chart(document.getElementById('areaChart'), {{
+/* ── Chart: エリア別 ── */
+new Chart(document.getElementById('areaChart'), {{
   type: 'bar',
-  data: {json.dumps(area_chart_data, ensure_ascii=False)},
+  data: {json.dumps(chart_area, ensure_ascii=False)},
   options: {{
     responsive: true,
-    plugins: {{ legend: {{ position: 'top', labels: {{ font: {{ size: 11 }} }} }} }},
+    plugins: {{ legend: {{ position: 'top', labels: {{ font: {{ size: 10 }}, boxWidth: 12 }} }} }},
     scales: {{
       y: {{ title: {{ display: true, text: '万円/月' }}, beginAtZero: true }},
       x: {{ ticks: {{ font: {{ size: 11 }} }} }}
@@ -281,19 +459,68 @@ const areaChart = new Chart(document.getElementById('areaChart'), {{
   }}
 }});
 
-function filterTable() {{
-  const co = document.getElementById('fcCompany').value;
-  const qu = document.getElementById('fcQual').value;
-  const ar = document.getElementById('fcArea').value;
+/* ── Chart: 資格別×企業別 ── */
+new Chart(document.getElementById('qualChart'), {{
+  type: 'bar',
+  data: {json.dumps(chart_qual, ensure_ascii=False)},
+  options: {{
+    responsive: true,
+    plugins: {{ legend: {{ position: 'top', labels: {{ font: {{ size: 10 }}, boxWidth: 12 }} }} }},
+    scales: {{
+      y: {{ title: {{ display: true, text: '万円/月' }}, beginAtZero: true }},
+      x: {{ ticks: {{ font: {{ size: 10 }} }} }}
+    }}
+  }}
+}});
+
+/* ── フィルター ── */
+function applyFilter() {{
+  const co  = document.getElementById('fcCompany').value;
+  const qu  = document.getElementById('fcQual').value;
+  const ar  = document.getElementById('fcArea').value;
+  const src = document.getElementById('fcSource').value;
+  const sal = document.getElementById('fcSalary').checked;
+  let visible = 0;
   document.querySelectorAll('#tblBody tr').forEach(tr => {{
-    const c = tr.cells;
-    tr.style.display =
-      (!co || c[1].textContent === co) &&
-      (!qu || c[2].textContent === qu) &&
-      (!ar || c[5].textContent.trim() === ar)
-      ? '' : 'none';
+    const match =
+      (!co  || tr.dataset.company === co) &&
+      (!qu  || tr.dataset.qual    === qu) &&
+      (!ar  || tr.dataset.area    === ar) &&
+      (!src || tr.dataset.source  === src) &&
+      (!sal || tr.dataset.salary  === '1');
+    tr.style.display = match ? '' : 'none';
+    if (match) visible++;
   }});
+  document.getElementById('resultCount').textContent = visible + ' 件表示中';
 }}
+
+/* ── ソート ── */
+let sortState = {{}};
+function sortTable(col) {{
+  const tbody = document.getElementById('tblBody');
+  const rows  = Array.from(tbody.querySelectorAll('tr'));
+  const asc   = !(sortState[col] === 'asc');
+  sortState    = {{}};
+  sortState[col] = asc ? 'asc' : 'desc';
+
+  rows.sort((a, b) => {{
+    const av = a.cells[col]?.textContent.trim() || '';
+    const bv = b.cells[col]?.textContent.trim() || '';
+    const an = parseFloat(av), bn = parseFloat(bv);
+    if (!isNaN(an) && !isNaN(bn)) return asc ? an - bn : bn - an;
+    return asc ? av.localeCompare(bv, 'ja') : bv.localeCompare(av, 'ja');
+  }});
+
+  document.querySelectorAll('.list-tbl th').forEach((th, i) => {{
+    th.classList.remove('sort-asc', 'sort-desc');
+    if (i === col) th.classList.add(asc ? 'sort-asc' : 'sort-desc');
+  }});
+  rows.forEach(r => tbody.appendChild(r));
+  applyFilter();
+}}
+
+/* 初期表示：給与ありのみ */
+applyFilter();
 </script>
 </body>
 </html>"""
@@ -305,7 +532,8 @@ def main() -> None:
     html = generate_html(rows)
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write(html)
-    print(f"レポート生成完了: {OUTPUT_FILE}  ({len(rows)} 件)")
+    salary_count = sum(1 for r in rows if to_monthly(r))
+    print(f"レポート生成完了: {OUTPUT_FILE}  ({len(rows)} 件 / 給与あり {salary_count} 件)")
 
 
 if __name__ == "__main__":
