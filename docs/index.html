@@ -8,16 +8,16 @@
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;background:#f0f2f7;color:#1a1a2e;font-size:14px;line-height:1.5}
-a{color:#1a73e8;text-decoration:none}
+a{color:#FF6753;text-decoration:none}
 /* ── Header ── */
-header{background:linear-gradient(135deg,#1a73e8 0%,#0d47a1 100%);color:#fff;padding:24px 32px 20px}
+header{background:linear-gradient(135deg,#FF6753 0%,#cc3520 100%);color:#fff;padding:24px 32px 20px}
 header h1{font-size:22px;font-weight:700;letter-spacing:-.3px}
 header p{font-size:12px;opacity:.8;margin-top:6px}
 /* ── タブ ── */
 .tab-btns{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
-.tab-btn{padding:6px 16px;border:1px solid #d0d7f0;border-radius:20px;background:#fff;
+.tab-btn{padding:6px 16px;border:1px solid #ffc9c3;border-radius:20px;background:#fff;
           font-size:12px;cursor:pointer;color:#555;transition:all .15s}
-.tab-btn.active{background:#1a73e8;color:#fff;border-color:#1a73e8;font-weight:600}
+.tab-btn.active{background:#FF6753;color:#fff;border-color:#FF6753;font-weight:600}
 .tab-pane{display:none}.tab-pane.active{display:block}
 /* ── Layout ── */
 .container{max-width:1320px;margin:0 auto;padding:20px 16px 40px}
@@ -26,28 +26,28 @@ header p{font-size:12px;opacity:.8;margin-top:6px}
 @media(max-width:900px){.grid2,.grid3{grid-template-columns:1fr}}
 /* ── Stats ── */
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:20px}
-.stat{background:#fff;border-radius:10px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.08);border-top:3px solid #1a73e8}
-.stat .num{font-size:32px;font-weight:800;color:#1a73e8;line-height:1}
+.stat{background:#fff;border-radius:10px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.08);border-top:3px solid #FF6753}
+.stat .num{font-size:32px;font-weight:800;color:#FF6753;line-height:1}
 .stat .label{font-size:11px;color:#888;margin-top:5px}
 /* ── Card ── */
 .card{background:#fff;border-radius:10px;padding:22px 24px;box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:20px}
 .card h2{font-size:14px;font-weight:700;margin-bottom:16px;color:#1a1a2e;
-          border-left:3px solid #1a73e8;padding-left:10px;display:flex;align-items:center;gap:6px}
+          border-left:3px solid #FF6753;padding-left:10px;display:flex;align-items:center;gap:6px}
 .card h2 .sub{font-size:11px;color:#888;font-weight:400}
 /* ── 比較表 ── */
 .cmp-tbl{width:100%;border-collapse:collapse;font-size:13px}
-.cmp-tbl th{background:#f0f4ff;padding:8px 14px;text-align:center;
+.cmp-tbl th{background:#fff0ee;padding:8px 14px;text-align:center;
              border:1px solid #e0e7ff;white-space:nowrap;font-size:12px}
 .cmp-tbl td{padding:8px 14px;border:1px solid #f0f0f0;vertical-align:middle}
-.qual-cell{font-weight:600;white-space:nowrap;background:#fafbff;font-size:12px}
+.qual-cell{font-weight:600;white-space:nowrap;background:#fff8f7;font-size:12px}
 .salary-ok{text-align:center}
-.salary-ok .range{font-weight:700;color:#1a73e8;display:block;font-size:13px}
+.salary-ok .range{font-weight:700;color:#FF6753;display:block;font-size:13px}
 .salary-ok .cnt{font-size:10px;color:#aaa;display:block;margin-top:1px}
 .no-data{text-align:center;color:#ccc;font-size:18px}
 /* ── フィルターバー ── */
 .filter-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;
-             background:#f8f9ff;padding:12px 14px;border-radius:8px;margin-bottom:14px}
-.filter-bar select{padding:6px 10px;border:1px solid #d0d7f0;border-radius:6px;
+             background:#fff8f7;padding:12px 14px;border-radius:8px;margin-bottom:14px}
+.filter-bar select{padding:6px 10px;border:1px solid #ffc9c3;border-radius:6px;
                     font-size:12px;background:#fff;color:#333;cursor:pointer}
 .filter-bar label{font-size:12px;display:flex;align-items:center;gap:5px;
                    cursor:pointer;color:#555}
@@ -56,17 +56,17 @@ header p{font-size:12px;opacity:.8;margin-top:6px}
 /* ── テーブル ── */
 .tbl-wrap{overflow-x:auto}
 table.list-tbl{width:100%;border-collapse:collapse;font-size:12px}
-.list-tbl th{background:#f0f4ff;text-align:left;padding:8px 10px;
-              border-bottom:2px solid #d8e2ff;white-space:nowrap;font-size:12px;
+.list-tbl th{background:#fff0ee;text-align:left;padding:8px 10px;
+              border-bottom:2px solid #ffd5d0;white-space:nowrap;font-size:12px;
               position:sticky;top:0;z-index:1}
 .list-tbl td{padding:7px 10px;border-bottom:1px solid #f3f3f3;vertical-align:middle}
-.list-tbl tr:hover td{background:#fafbff}
+.list-tbl tr:hover td{background:#fff8f7}
 .title-cell{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .salary-raw{color:#555;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.salary-range{font-weight:700;color:#1a73e8;white-space:nowrap}
+.salary-range{font-weight:700;color:#FF6753;white-space:nowrap}
 /* ── バッジ ── */
 .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap}
-.badge-首都圏{background:#e8f0fe;color:#1a73e8}
+.badge-首都圏{background:#fff0ee;color:#FF6753}
 .badge-関西  {background:#fce8e6;color:#c5221f}
 .badge-東海  {background:#fef7e0;color:#b06000}
 .badge-その他{background:#e6f4ea;color:#137333}
@@ -74,7 +74,7 @@ table.list-tbl{width:100%;border-collapse:collapse;font-size:12px}
 .src-career{background:#e2f0fb;color:#0c5460}
 /* ── ソート矢印 ── */
 .list-tbl th.sortable{cursor:pointer;user-select:none}
-.list-tbl th.sortable:hover{background:#dce8ff}
+.list-tbl th.sortable:hover{background:#ffd5d0}
 .sort-asc::after{content:" ↑"}
 .sort-desc::after{content:" ↓"}
 /* ── フッター ── */
@@ -84,7 +84,7 @@ footer{text-align:center;font-size:11px;color:#bbb;padding:20px}
 <body>
 <header>
   <h1>📊 福祉・保育業界 給与水準レポート</h1>
-  <p>最終更新: 2026年04月22日　｜　対象7社・5資格　｜　毎月1日 9:00 JST 自動更新</p>
+  <p>最終更新: 2026年04月23日　｜　対象7社・5資格　｜　毎月1日 9:00 JST 自動更新</p>
 </header>
 
 <div class="container">
