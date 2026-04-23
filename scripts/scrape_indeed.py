@@ -249,7 +249,7 @@ def scrape_indeed(driver: webdriver.Chrome, company: str, qualification: str,
     query = f"{keyword or company} {qualification}"
     all_results = []
 
-    for page in range(3):
+    for page in range(2):  # 2ページまで（3→2で実行時間を大幅削減）
         start = page * 10
         url = f"https://jp.indeed.com/jobs?q={quote(query)}&start={start}"
         logger.debug(f"  GET {url}")
@@ -260,25 +260,25 @@ def scrape_indeed(driver: webdriver.Chrome, company: str, qualification: str,
             logger.warning(f"  ページ読み込み失敗: {e}")
             break
 
-        # 求人カードが出るまで最大15秒待機（タイムアウトしても抽出を試みる）
+        # 求人カードが出るまで最大8秒待機（15→8秒）
         try:
-            WebDriverWait(driver, 15).until(
+            WebDriverWait(driver, 8).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "div#mosaic-provider-jobcards, div.jobsearch-ResultsList"))
             )
         except Exception:
             pass  # タイムアウトしても続行
 
-        time.sleep(random.uniform(2.0, 4.0))  # JS描画を待つ
+        time.sleep(random.uniform(1.0, 2.0))  # JS描画待ち（2-4→1-2秒）
 
         jobs = _extract_jobs(driver.page_source, company, qualification, existing_urls)
         logger.debug(f"  page{page+1}: {len(jobs)} 件")
 
-        if not jobs and page > 0:
-            break
+        if not jobs:
+            break  # 新規0件なら次ページをスキップ
 
         all_results.extend(jobs)
 
-        time.sleep(random.uniform(3.0, 6.0))
+        time.sleep(random.uniform(1.5, 3.0))  # ページ間待ち（3-6→1.5-3秒）
 
     return all_results
 
@@ -309,7 +309,7 @@ def main() -> None:
                     results = scrape_indeed(driver, company, qual, existing_urls, keyword=alias)
                     logger.info(f"  → 新規 {len(results)} 件")
                     combo_results.extend(results)
-                    time.sleep(random.uniform(2.0, 4.0))
+                    time.sleep(random.uniform(1.0, 2.0))  # エイリアス間待ち（2-4→1-2秒）
 
                 if combo_results:
                     with open(DATA_FILE, "a", newline="", encoding="utf-8") as f:
